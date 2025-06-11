@@ -12,6 +12,7 @@ import { spawn } from "child_process";
 import { decode } from "iconv-lite";
 import * as yaml from 'js-yaml';
 
+
 export interface UVisonInfo {
     schemaVersion: string | undefined;
 }
@@ -205,10 +206,15 @@ export abstract class PTarget implements IView {
         const cStandard = this.getCStandard(this.targetDOM);
         const cppStandard = this.getCppStandard(this.targetDOM);
         const intelliSenseMode = this.getIntelliSenseMode(this.targetDOM);
+        const armccInclude = ResourceManager.getInstance().getArmccIncludePath(this.getKeilPlatform());
+        const armccRw = ResourceManager.getInstance().getArmccRwPath(this.getKeilPlatform());
 
         // set includes
         this.includes.clear();
         //this.includes.add('${workspaceFolder}/**');
+
+        this.includes.add(armccInclude);
+        this.includes.add(armccRw);
 
         if (rteIncludes !== undefined)
             this.includes.add("${workspaceFolder}/RTE/" + `_${this.targetName.replace(" ", "_")}`);

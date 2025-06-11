@@ -60,6 +60,14 @@ export class ResourceManager {
         return this.getFilePath('bin', 'Uv4Caller.exe');
     }
 
+    getArmccIncludePath(target: string): string {
+        return `${ResourceManager.getInstance().getKeilRootDir(target)}${File.sep}ARM${File.sep}ARMCC${File.sep}include`;
+    }
+
+    getArmccRwPath(target: string): string {
+        return `${this.getArmccIncludePath(target)}${File.sep}rw`;
+    }
+
     getKeilUV4Path(target: string): string {
         return `${this.getKeilRootDir(target)}${File.sep}UV4${File.sep}UV4.exe`;
     }
