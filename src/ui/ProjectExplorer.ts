@@ -1,19 +1,22 @@
 import { XMLParser } from "fast-xml-parser";
 import { statSync, readFileSync, readdirSync } from "fs";
 import { dirname, extname, join, normalize, resolve } from "path";
-import {
-    Event, commands, EventEmitter, ExtensionContext, l10n, ProviderResult, TreeDataProvider,
-    TreeItem, TreeItemCollapsibleState, Uri, workspace, window,
+import type {
+    Event, ExtensionContext, ProviderResult, TreeDataProvider,
     OutputChannel,
     StatusBarItem
 } from "vscode";
+import {
+    commands, EventEmitter, l10n,
+    TreeItem, TreeItemCollapsibleState, Uri, workspace, window
+} from "vscode";
 
-import { IView } from "../core/IView";
+import type { IView } from "../core/IView";
 import { KeilProject } from "../core/KeilProject";
 import { Source } from "../core/Source";
 import { ResourceManager } from "../ResourceManager";
 import { File } from '../node_utility/File';
-import { PTarget } from "../target/PTarget";
+import type { PTarget } from "../target/PTarget";
 
 
 export class ProjectExplorer implements TreeDataProvider<IView> {
@@ -25,7 +28,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
     private prjList: Map<string, KeilProject>;
     private curActiveProject: KeilProject | undefined;
-    private workspacePath: string | undefined;
+    private workspacePath: string;
 
     constructor(context: ExtensionContext, private channel: OutputChannel, private myStatusBarItem: StatusBarItem) {
         this.prjList = new Map();
@@ -33,31 +36,36 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
         this.onDidChangeTreeData = this.viewEvent.event;
         context.subscriptions.push(window.registerTreeDataProvider('project', this));
         context.subscriptions.push(commands.registerCommand(this.itemClickCommand, (item: IView) => this.onItemClick(item)));
+        this.workspacePath = '';
     }
     private parseUvmpwFile(uvwPath: string, xmlParser: XMLParser): string[] {
         try {
             const uvmpwXml = readFileSync(uvwPath);
             const uvmpw = xmlParser.parse(uvmpwXml);
             const projectList = uvmpw['ProjectWorkspace']['project'];
+
             if (Array.isArray(projectList)) {
                 return projectList.map<string>(p => {
                     const path = p['PathAndName'] as string;
+
                     return resolve(dirname(uvwPath), path);
                 });
             }
         } catch (error) {
             this.channel.appendLine(`Error parsing .uvmpw file ${uvwPath}: ${error}`);
         }
+
         return [];
     }
     async loadWorkspace() {
         this.channel.show();
         if (!workspace.workspaceFolders || workspace.workspaceFolders.length === 0) {
             this.channel.appendLine('No workspace folders found.');
+
             return;
         }
 
-        this.workspacePath = workspace.workspaceFile && /^file:/.test(workspace.workspaceFile.toString())
+        this.workspacePath = workspace.workspaceFile && workspace.workspaceFile.toString().startsWith('file:')
             ? dirname(workspace.workspaceFile.fsPath)
             : workspace.workspaceFolders[0].uri.fsPath;
 
@@ -66,6 +74,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
         if (!prjWorkspace.isDir()) {
             this.channel.appendLine('Error: this assistant works only in a folder.');
+
             return;
         }
 
@@ -75,6 +84,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
         // Multiply project workspace
         const uvmwList = await this.findProject(prjWorkspace.path, [/\.uvmpw$/i], searchDepth);
+
         if (uvmwList && uvmwList.length > 0) {
             const options = {
                 attributeNamePrefix: "@_",
@@ -95,6 +105,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
                 stopNodes: ["parse-me-as-string"]
             };
             const xmlParser = new XMLParser(options);
+
             uvList = uvmwList.flatMap(uvwPath => this.parseUvmpwFile(uvwPath, xmlParser));
         }
 
@@ -109,7 +120,8 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
         // Filter out excluded files
         uvList = uvList.filter(path => !excludeList.includes(extname(path).toLowerCase()));
 
-        const  hasMultiplyProject = uvList.length > 1; //Multiply
+        const hasMultiplyProject = uvList.length > 1; //Multiply
+
         // Load each project file
         for (const uvPath of uvList) {
             try {
@@ -121,18 +133,21 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
         }
     }
 
-    async findProject(dir: string, fileFilter?: RegExp[], deep: number = 0): Promise<string[]> {
+    async findProject(dir: string, fileFilter?: RegExp[], deep = 0): Promise<string[]> {
         const list: string[] = [];
         const items = readdirSync(dir);
+
         for (const item of items) {
             if (item === '.' || item === '..') {
                 continue;
             }
             const fullPath = join(dir, item);
             const stat = statSync(fullPath);
+
             if (stat.isFile()) {
                 if (fileFilter) {
                     const extension = extname(item); // 优化：直接使用 extname 获取扩展名
+
                     if (fileFilter.some(reg => reg.test(extension))) {
                         list.push(fullPath);
                     }
@@ -141,9 +156,11 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
                 }
             } else if (stat.isDirectory() && deep > 0) {
                 const subFiles = await this.findProject(fullPath, fileFilter, deep - 1);
+
                 list.push(...subFiles);
             }
         }
+
         return list;
     }
 
@@ -151,8 +168,10 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
         if (this.workspacePath === undefined) {
             const msg = l10n.t('The workspace directory is empty, Goto open the workspace directory?');
             const result = await window.showInformationMessage(msg, l10n.t('Ok'), l10n.t('Cancel'));
+
             if (result === l10n.t('Ok')) {
                 this.openWorkspace(new File(dirname(path)));
+
                 return;
             }
             if (result === l10n.t('Cancel')) {
@@ -160,12 +179,14 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
                 const msg = l10n.t('Failed, The workspace Path');
                 const emsg = l10n.t('is NULL , Please use vscode open the project folder.');
                 const errorMsg = `${fmsg} ${path} ${msg} ${this.workspacePath} ${emsg}`;
+
                 this.channel.appendLine(errorMsg);
                 window.showErrorMessage(errorMsg);
                 throw Error(errorMsg);
             }
         }
         const nPrj = new KeilProject(this.channel, new File(path), this.workspacePath, hasMultiplyProject);
+
         if (nPrj) {
             if (!this.prjList.has(nPrj.prjID)) {
 
@@ -183,11 +204,13 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
                 return nPrj;
             }
         }
+
         return undefined;
     }
 
     async closeProject(pID: string) {
         const prj = this.prjList.get(pID);
+
         if (prj) {
             prj.deactive();
             prj.close();
@@ -200,6 +223,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
     async activeProject(view: IView) {
         this.curActiveProject?.deactive();
         const project = this.prjList.get(view.prjID);
+
         project?.active();
         this.curActiveProject = project;
         this.updateView();
@@ -207,13 +231,20 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
     }
 
     async switchTargetByProject(view: IView) {
-        const prj = this.prjList.get(view.prjID);
+        let prj = undefined;
+        if (view !== undefined && view.prjID !== undefined) {
+            prj = this.prjList.get(view.prjID);
+        } else {
+            prj = this.curActiveProject;
+        }
+
         if (prj) {
             const tList = prj.getTargets();
-            const targetName = await window.showQuickPick(tList.map((ele) => { return ele.targetName; }), {
+            const targetName = await window.showQuickPick(tList.map((ele) => ele.targetName), {
                 canPickMany: false,
                 placeHolder: l10n.t('please select a target name for keil project')
             });
+
             if (targetName) {
                 prj.setActiveTarget(targetName);
             }
@@ -222,11 +253,12 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
     async statusBarSwitchTargetByProject() {
         if (this.curActiveProject) {
-            const tList = this.curActiveProject?.getTargets();
-            const targetName = await window.showQuickPick(tList.map((ele) => { return ele.targetName; }), {
+            const tList = this.curActiveProject.getTargets();
+            const targetName = await window.showQuickPick(tList.map((ele) => ele.targetName), {
                 canPickMany: false,
                 placeHolder: l10n.t('please select a target name for keil project')
             });
+
             if (targetName) {
                 this.curActiveProject?.setActiveTarget(targetName);
             }
@@ -236,11 +268,11 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
     getTarget(view?: IView): PTarget | undefined {
         if (view) {
             const prj = this.prjList.get(view.prjID);
+
             if (prj) {
                 const targets = prj.getTargets();
-                const index = targets.findIndex((target) => {
-                    return target.targetName === view.label;
-                });
+                const index = targets.findIndex((target) => target.targetName === view.label);
+
                 if (index !== -1) {
                     return targets[index];
                 }
@@ -256,7 +288,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
     updateView(v?: IView) {
         this.updateStatusBarItem(this.curActiveProject?.activeTargetName);
-        this.viewEvent.fire(v!!);
+        this.viewEvent.fire(v!);
     }
 
     //----------------------------------
@@ -265,7 +297,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
     private async onItemClick(item: IView) {
         if (item.contextVal === 'Source') {
-            const source = <Source>item;
+            const source = item as Source;
             const file = new File(normalize(source.file.path));
 
             if (file.isFile()) { // file exist, open it
@@ -288,6 +320,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
 
             } else {
                 const msg = l10n.t('Not found file');
+
                 window.showWarningMessage(`${msg}: ${source.file.path}`);
             }
         }
@@ -315,6 +348,7 @@ export class ProjectExplorer implements TreeDataProvider<IView> {
                 dark: ResourceManager.getInstance().getIconByName(element.icons.dark)
             };
         }
+
         return res;
     }
 

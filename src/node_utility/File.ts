@@ -1,11 +1,13 @@
-import * as Path from 'path';
+import { basename, dirname, extname, sep, delimiter, isAbsolute, relative } from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import { pathToFileURL } from 'node:url';
+
 
 export class File {
 
-    static sep = Path.sep;
-    static delimiter = Path.delimiter;
+    static sep = sep;
+    static delimiter = delimiter;
     static emptyFilter: RegExp[] = [];
 
     readonly name: string;          // example 'demo.cpp'
@@ -16,10 +18,10 @@ export class File {
 
     constructor(fPath: string) {
         this.path = fPath;
-        this.name = Path.basename(fPath);
+        this.name = basename(fPath);
         this.noSuffixName = this.getNoSuffixName(this.name);
-        this.suffix = Path.extname(fPath);
-        this.dir = Path.dirname(fPath);
+        this.suffix = extname(fPath);
+        this.dir = dirname(fPath);
     }
 
     static fromArray(pathArray: string[]): File {
@@ -27,15 +29,15 @@ export class File {
     }
 
     static toUnixPath(path: string): string {
-        return Path.normalize(path).replace(/\\{1,}/g, '/');
+        return path.normalize(path).replace(/\\{1,}/g, '/');
     }
 
     static toUri(path: string): string {
-        return 'file://' + this.toNoProtocolUri(path);
+        return `file://${this.toNoProtocolUri(path)}`;
     }
 
     static toNoProtocolUri(path: string): string {
-        return '/' + encodeURIComponent(path.replace(/\\/g, '/'));
+        return `/${encodeURIComponent(path.replace(/\\/g, '/'))}`;
     }
 
     // c:/abcd/../a -> c:\abcd\..\a
@@ -49,7 +51,7 @@ export class File {
 
         return res;
     }
-  
+
     private static _match(str: string, isInverter: boolean, regList: RegExp[]): boolean {
 
         let isMatch = false;
@@ -113,8 +115,10 @@ export class File {
 
     private getNoSuffixName(name: string): string {
         const nList = this.name.split('.');
+
         if (nList.length > 1) {
             nList.pop();
+
             return nList.join('.');
         } else {
             return name;
@@ -128,6 +132,7 @@ export class File {
         if (relativePath) {
 
             const dir = File.fromArray([this.path, relativePath.replace(/\//g, File.sep)]);
+
             if (!dir.isDir()) {
                 this.createDir(true);
             }
@@ -140,12 +145,13 @@ export class File {
     */
     toRelativePath(abspath: string, hasPrefix = true): string | undefined {
 
-        if (!Path.isAbsolute(abspath)) {
+        if (!isAbsolute(abspath)) {
             return undefined;
         }
 
-        const rePath = Path.relative(this.path, abspath);
-        if (Path.isAbsolute(rePath)) {
+        const rePath = relative(this.path, abspath);
+
+        if (isAbsolute(rePath)) {
             return undefined;
         }
 
@@ -157,19 +163,23 @@ export class File {
     createDir(recursive = false): void {
         if (!this.isDir()) {
             if (recursive) {
-                const list = this.path.split(Path.sep);
+                const list = this.path.split(sep);
                 let f: File;
+
                 if (list.length > 0) {
                     let dir: string = list[0];
+
                     for (let i = 0; i < list.length;) {
                         f = new File(dir);
                         if (!f.isDir()) {
                             fs.mkdirSync(f.path);
                         }
-                        dir += ++i < list.length ? (Path.sep + list[i]) : '';
+                        dir += ++i < list.length ? (sep + list[i]) : '';
                     }
+
                     return;
                 }
+
                 return;
             }
             fs.mkdirSync(this.path);
@@ -178,8 +188,10 @@ export class File {
 
     path2File(path: string, fileFilter?: RegExp[], dirFilter?: RegExp[]): File[] {
         const list: File[] = [];
+
         if (path !== '.' && path !== '..') {
             const f = new File(path);
+
             if (f.isDir()) {
                 if (dirFilter) {
                     for (const reg of dirFilter) {
@@ -204,14 +216,17 @@ export class File {
                 }
             }
         }
+
         return list;
     }
 
     getList(fileFilter?: RegExp[], dirFilter?: RegExp[]): File[] {
         const list: File[] = [];
+
         fs.readdirSync(this.path).forEach((str: string) => {
             if (str !== '.' && str !== '..') {
-                const f = new File(this.path + Path.sep + str);
+                const f = new File(this.path + sep + str);
+
                 if (f.isDir()) {
                     if (dirFilter) {
                         for (const reg of dirFilter) {
@@ -237,6 +252,7 @@ export class File {
                 }
             }
         });
+
         return list;
     }
 
@@ -247,7 +263,7 @@ export class File {
         let f: File;
 
         while (fStack.length > 0) {
-            f = <File>fStack.pop();
+            f = fStack.pop() as File;
             if (f.isDir()) {
                 fStack = fStack.concat(f.getList(fileFilter));
             }
@@ -267,6 +283,7 @@ export class File {
 
     copyList(dir: File, fileFilter?: RegExp[], dirFilter?: RegExp[]) {
         const fList = dir.getList(fileFilter, dirFilter);
+
         fList.forEach(f => {
             if (f.isFile()) {
                 this.copyRetainDir(dir, f);
@@ -276,6 +293,7 @@ export class File {
 
     copyAll(dir: File, fileFilter?: RegExp[], dirFilter?: RegExp[]) {
         const fList = dir.getAll(fileFilter, dirFilter);
+
         fList.forEach(f => {
             if (f.isFile()) {
                 this.copyRetainDir(dir, f);
@@ -285,8 +303,8 @@ export class File {
 
     //-------------------------------------------------
 
-    read(encoding?: BufferEncoding): string {
-        return fs.readFileSync(this.path, { encoding: encoding || 'utf8' });
+    read(encoding?: any): string {
+        return fs.readFileSync(this.path, { encoding: encoding ?? 'utf8' }) as unknown as string;
     }
 
     write(str: string, options?: fs.WriteFileOptions) {
@@ -301,6 +319,7 @@ export class File {
         if (fs.existsSync(this.path)) {
             return fs.lstatSync(this.path).isFile();
         }
+
         return false;
     }
 
@@ -308,12 +327,15 @@ export class File {
         if (fs.existsSync(this.path)) {
             return fs.lstatSync(this.path).isDirectory();
         }
+
         return false;
     }
 
     getHash(hashName?: string): string {
-        const hash = crypto.createHash(hashName || 'md5');
+        const hash = crypto.createHash(hashName ?? 'md5');
+
         hash.update(fs.readFileSync(this.path));
+
         return hash.digest('hex');
     }
 
@@ -322,10 +344,10 @@ export class File {
     }
 
     toUri(): string {
-        return 'file://' + this.toNoProtocolUri();
+        return `file://${this.toNoProtocolUri()}`;
     }
 
     toNoProtocolUri(): string {
-        return '/' + encodeURIComponent(this.path.replace(/\\/g, '/'));
+        return `/${encodeURIComponent(this.path.replace(/\\/g, '/'))}`;
     }
 }

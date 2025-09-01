@@ -1,13 +1,13 @@
-import { File } from '../node_utility/File';
+import type { File } from '../node_utility/File';
 
-export interface KeilProjectInfo {
+export type KeilProjectInfo = {
     keilVscodeProps: any;
 
     prjID: string;
 
     vscodeDir: File;
 
-    workspaceDir: string | undefined;
+    workspaceDir: string;
 
     uvprjFile: File;
 

@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
     "module": "commonjs",
-    "target": "ES2022",
+    "target": "ES2023",
     "outDir": "dist",
     "lib": [
-      "ES2022",
+      "ES2023",
       "DOM"
     ],
     "inlineSourceMap": true,
@@ -14,7 +14,8 @@
     "strictNullChecks": true,
     "strict": true, /* enable all strict type-checking options */
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true 
+    "skipLibCheck": true ,
+    "types": ["node", "vscode"],
   },
   "include": [
     "test/**/*.ts",
@@ -23,7 +24,6 @@
     "src/**/*.ts"
   ],
   "exclude": [
-    "node_modules/@types/eslint-scope/node_modules/@types/eslint/index.d.ts",
     "node_modules"
   ]
 }

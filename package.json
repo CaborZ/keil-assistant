@@ -2,7 +2,7 @@
   "name": "keil-vscode-assistant",
   "displayName": "%displayName%",
   "description": "%description%",
-  "version": "1.9.14",
+  "version": "1.9.21",
   "publisher": "jacksonjim",
   "icon": "res/icons/icon.png",
   "author": "jacksonjim <jacksonjim@foxmail.com>",
@@ -34,7 +34,7 @@
     "Extension Packs"
   ],
   "activationEvents": [],
-  "main": "./dist/src/extension.js",
+  "main": "./dist/extension.js",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jacksonjim/keil-assistant.git"
@@ -50,53 +50,48 @@
   ],
   "scripts": {
     "setup": "yarn install",
-    "build:tsc": "tsc --build tsconfig.json",
-    "build:prod": "webpack --mode production && yarn lint",
-    "compile": "webpack --mode production",
-    "build": "webpack --mode development",
-    "compile-watch": "webpack --mode production -watch --progress",
-    "compile-dev-watch": "webpack --mode development -watch --progress",
+    "compile": "yarn check-types && ts-node esbuild.ts",
+    "check-types": "tsc --noEmit",
     "compile-unit-test": "tsc --build test.tsconfig.json",
-    "compile-watch-unit-test": "tsc --build test.tsconfig.json -watch",
-    "watch": "tsc --build tsconfig.json -watch",
+    "compile-watch-unit-test": "tsc --build test.tsconfig.json --watch",
+    "watch": "yarn compile && yarn watch:tsc",
+    "watch:esbuild": "ts-node esbuild.ts --watch",
+    "watch-tsc": "tsc --build tsconfig.json --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "compile-tests": "tsc -p test.tsconfig.json --outDir out",
-    "watch-tests": "tsc -p test.tsconfig.json -w --outDir out",
-    "pretest": "yarn run compile-tests && yarn run compile && yarn run lint",
-    "lint": "eslint src --ext .ts,.tsx",
-    "test": "node ./out/test/runTest.js",
-    "webpack": "yarn install && tsc --build tsconfig.json && webpack --mode production",
-    "vscode:prepublish": "yarn run webpack",
-    "vsce-package": "vsce package --no-yarn",
-    "vsce-publish": "vsce publish --no-yarn"
+    "watch-tests": "tsc -p test.tsconfig.json --watch --outDir out",
+    "pretest": "yarn run compile-tests && yarn run compile",
+    "lint": "oxlint .",
+    "test": "ts-node ./out/test/runTest.js",
+    "package": "yarn run check-types && ts-node esbuild.ts --production",
+    "vscode:prepublish": "yarn run package",
+    "vsce-package": "vsce package --yarn",
+    "vsce-package-pre": "vsce package --pre-release --yarn",
+    "vsce-publish": "vsce publish --yarn",
+    "deploy": "vsce publish --yarn"
   },
   "dependencies": {
     "@vscode/l10n": "^0.0.18"
   },
   "devDependencies": {
-    "@eslint/js": "^9.26.0",
-    "@types/chokidar": "^2.1.7",
     "@types/ini": "^4.1.1",
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^18.x",
+    "@types/node": "^24.x",
     "@types/vscode": "^1.73.0",
-    "@typescript-eslint/eslint-plugin": "^8.32.0",
-    "@typescript-eslint/parser": "^8.32.0",
     "@vscode/dts": "^0.4.1",
     "@vscode/l10n-dev": "^0.0.35",
     "@vscode/test-electron": "^2.5.2",
-    "@vscode/vsce": "^3.3.2",
+    "@vscode/vsce": "^3.6.0",
     "chokidar": "^4.0.3",
-    "eslint": "^9.26.0",
-    "fast-xml-parser": "^5.2.2",
-    "glob": "^11.0.2",
-    "iconv-lite": "0.6.3",
-    "mocha": "^11.1.0",
+    "fast-xml-parser": "^5.2.5",
+    "iconv-lite": "0.7.0",
+    "mocha": "^11.7.1",
+    "oxlint": "^1.13.0",
     "source-map-support": "^0.5.21",
-    "ts-loader": "^9.5.2",
-    "typescript": "^5.8.3",
-    "webpack": "^5.99.7",
-    "webpack-cli": "^6.0.1"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2",
+    "esbuild": "^0.25.9"
   },
   "contributes": {
     "viewsWelcome": [
@@ -210,6 +205,10 @@
           "light": "./res/icons/CopyToClipboard_16x_light.svg",
           "dark": "./res/icons/CopyToClipboard_16x_dark.svg"
         }
+      },
+      {
+        "command": "project.generateCompileCommandsJson",
+        "title": "%keil-assistant.contributes.commands.project-generateCompileCommandsJson%"
       }
     ],
     "menus": {
@@ -259,15 +258,19 @@
     "keybindings": [
       {
         "command": "project.build",
-        "key": "f7"
+        "key": "F7"
       },
       {
         "command": "project.rebuild",
-        "key": "ctrl+alt+f7"
+        "key": "ALT+F7"
       },
       {
         "command": "project.download",
-        "key": "ctrl+alt+d"
+        "key": "F8"
+      },
+      {
+        "command": "project.switch",
+        "key": "CTRL+T"
       }
     ],
     "snippets": [

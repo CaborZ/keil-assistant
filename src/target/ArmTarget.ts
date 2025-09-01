@@ -1,13 +1,14 @@
-
 import { File } from '../node_utility/File';
 import { ResourceManager } from '../ResourceManager';
-import { KeilProjectInfo } from '../core/KeilProjectInfo';
+import type { KeilProjectInfo } from '../core/KeilProjectInfo';
 import { CmdLineHandler } from '../CmdLineHandler';
 import { execSync } from 'child_process';
 import { XMLParser } from 'fast-xml-parser';
-import { existsSync, statSync, readFileSync } from 'fs';
-import { resolve, join } from 'path';
-import { PTarget, UVisonInfo } from './PTarget';
+import { existsSync, statSync, readFileSync, readdirSync } from 'fs';
+import { resolve, join, extname } from 'path';
+import type { UVisonInfo } from './PTarget';
+import { PTarget } from './PTarget';
+import { MacroHandler } from '../core/MacroHandler';
 
 export class ArmTarget extends PTarget {
 
@@ -159,16 +160,12 @@ export class ArmTarget extends PTarget {
     }
 
     protected getOutputFolder(target: any): string | undefined {
-        try {
-            return <string>target['TargetOption']['TargetCommonOption']['OutputDirectory'];
-        } catch (error) {
-            return undefined;
-        }
+        return target?.['TargetOption']?.['TargetCommonOption']?.['OutputDirectory'] ?? undefined;
     }
 
     private gnuParseRefLines(lines: string[]): string[] {
 
-        const resultList: Set<string> = new Set();
+        const resultList = new Set<string>();
 
         for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
             const _line = lines[lineIndex];
@@ -181,6 +178,7 @@ export class ArmTarget extends PTarget {
 
             for (let i = startIndex; i < subLines.length; i++) {
                 const item = subLines[i].trim().replace(/\\ /g, " ");
+
                 if (item) { // Ensure the item is not empty
                     resultList.add(item);
                 }
@@ -196,8 +194,10 @@ export class ArmTarget extends PTarget {
 
         for (let i = startIndex; i < lines.length; i++) {
             const sepIndex = lines[i].indexOf(": ");
+
             if (sepIndex > 0) {
                 const line: string = lines[i].substring(sepIndex + 1).trim();
+
                 resultList.add(line);
             }
         }
@@ -216,37 +216,52 @@ export class ArmTarget extends PTarget {
     private initArmclangMacros(cpuType: string | undefined) {
         if (ArmTarget.armclangBuildinMacros === undefined) {
             const armClangPath = `${ResourceManager.getInstance().getKeilRootDir(this.getKeilPlatform())}${File.sep}ARM${File.sep}ARMCLANG${File.sep}bin${File.sep}armclang.exe`;
+
             cpuType = cpuType?.replaceAll('"', '');
             const armClangCpu = this.getArmCpuType(cpuType);
+
             ArmTarget.armclangBuildinMacros = this.getArmClangMacroList(armClangPath, armClangCpu);
         }
     }
 
-    protected getSysDefines(target: any): string[] {
+    protected getSysDefines(target: any) {
         if (target['uAC6'] === 1) { // ARMClang
             this.initArmclangMacros(target['TargetOption']['TargetArmAds']['ArmAdsMisc']['AdsCpuType']);
-            return ArmTarget.armclangMacros.concat(ArmTarget.armclangBuildinMacros || []);
+
+            ArmTarget.armclangMacros.forEach(define =>
+                this.defines.add(define)
+            );
+            ArmTarget.armclangBuildinMacros?.forEach(define =>
+                this.defines.add(define)
+            )
         } else { // ARMCC
-            return ArmTarget.armccMacros;
+            ArmTarget.armccMacros.forEach(define =>
+                this.defines.add(define)
+            );
         }
     }
 
-    protected getRteDefines(target: any): string[] {
+    protected getRteDefines(target: any) {
         if (target) {
             const components = target['components']['component'];
             const apis = target['apis']['api'];
+
             if (Array.isArray(components) || Array.isArray(apis)) {
-                return ["_RTE_"];
+                this.defines.add("_RTE_");
             }
         }
-        return [];
     }
 
     private getArmClangMacroList(armClangPath: string, armClangCpu?: string): string[] {
         try {
             // armclang.exe --target=arm-arm-none-eabi -E -dM -xc - < nul
-            const cmdLine = CmdLineHandler.quoteString(armClangPath, '"')
-                + ' ' + ['--target=arm-arm-none-eabi', armClangCpu, '-E', '-dM', '-xc', '-', '<', 'nul'].join(' ');
+            const cmdArgs = ['--target=arm-arm-none-eabi'];
+            if (armClangCpu) {
+                cmdArgs.push(armClangCpu);
+            }
+            cmdArgs.push('-E', '-dM', '-xc', '-', '<', 'nul');
+
+            const cmdLine = `${CmdLineHandler.quoteString(armClangPath, '"')} ${cmdArgs.join(' ')}`;
 
             const lines = execSync(cmdLine).toString().split(/\r\n|\n/);
             const resList: string[] = [];
@@ -255,13 +270,15 @@ export class ArmTarget extends PTarget {
             lines.filter((line) => line.trim() !== '')
                 .forEach((line) => {
                     const value = mHandler.toExpression(line);
+
                     if (value) {
                         resList.push(value);
                     }
                 });
 
             return resList;
-        } catch (error) {
+        } catch (err) {
+            console.warn('getArmClangMacroList failed:', err);
             return ['__GNUC__=4', '__GNUC_MINOR__=2', '__GNUC_PATCHLEVEL__=1'];
         }
     }
@@ -306,7 +323,7 @@ export class ArmTarget extends PTarget {
                 return '-mcpu=Cortex-A7';
             case 'Cortex-A9':
                 return '-mcpu=Cortex-A9';
-
+            case undefined: { throw new Error('Not implemented yet: undefined case') }
         }
     }
     /*
@@ -416,9 +433,9 @@ export class ArmTarget extends PTarget {
                 if (fpu === 'NO_FPU') {
                     if (dsp === 'NO_DSP') {
                         if (mve === 'NO_MVE') {
-                            return '-march=armv8.1-m.main+nofp -mfloat-abi=soft';
+                            return '-march=armv8.1-m.main+nofp+nomve';
                         }
-                        return '-march=armv8.1-m.main+mve+nofp -mfloat-abi=soft';
+                        return '-march=armv8.1-m.main+nofp';
                     }
                     if (mve === 'NO_MVE') {
                         return '-march=armv8.1-m.main+dsp+nofp -mfloat-abi=soft';
@@ -486,52 +503,119 @@ export class ArmTarget extends PTarget {
 */
     protected getSystemIncludes(target: any): string[] | undefined {
         const keilRootDir = new File(ResourceManager.getInstance().getKeilRootDir(this.getKeilPlatform()));
+
         if (keilRootDir.isDir()) {
             const toolName = target['uAC6'] === 1 ? 'ARMCLANG' : 'ARMCC';
             const incDir = new File(`${keilRootDir.path}${File.sep}ARM${File.sep}${toolName}${File.sep}include`);
+            const incPath = incDir.path.replace(/\\/g, '/');
             if (incDir.isDir()) {
-                return [incDir.path].concat(
-                    incDir.getList(File.emptyFilter).map((dir) => { return dir.path; }));
+                return [incPath].concat(
+                    incDir.getList(File.emptyFilter).map((dir) => dir.path.replace(/\\/g, '/')));
             }
-            return [incDir.path];
+
+            return [incPath];
         }
+
         return undefined;
     }
     private processArray(item: any): any[] {
         if (Array.isArray(item)) {
             return item;
         }
+
         return item ? [item] : [];
     }
 
-    protected getRTEIncludes(_target: any, rteDom: any): string[] | undefined {
+    private extractMacros(source: string) {
+        const lines = source.split('\n');
+        let currentMacro = { name: '', value: '' };
+        let inMultiLine = false;
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+
+            // 跳过非宏定义行
+            if (!trimmed.startsWith('#define') && !inMultiLine) continue;
+            if (trimmed === '#define') continue; // 无效定义
+
+            if (!inMultiLine) {
+                // 解析新宏定义
+                const parts = trimmed.split(/\s+/).filter(p => p);
+                if (parts.length < 2) continue; // 无效格式
+
+                currentMacro.name = parts[1];
+                currentMacro.value = parts.slice(2).join(' ');
+                // 更高效的注释移除方式
+                const singleLineCommentIndex = currentMacro.value.indexOf('//');
+                const multiLineCommentStartIndex = currentMacro.value.indexOf('/*');
+
+                if (singleLineCommentIndex !== -1) {
+                    currentMacro.value = currentMacro.value.substring(0, singleLineCommentIndex);
+                } else if (multiLineCommentStartIndex !== -1) {
+                    const multiLineCommentEndIndex = currentMacro.value.indexOf('*/', multiLineCommentStartIndex + 2);
+                    if (multiLineCommentEndIndex !== -1) {
+                        currentMacro.value = currentMacro.value.substring(0, multiLineCommentStartIndex) +
+                            currentMacro.value.substring(multiLineCommentEndIndex + 2);
+                    }
+                }
+                currentMacro.value = currentMacro.value.trim();
+
+                // 检查是否多行宏
+                inMultiLine = trimmed.endsWith('\\');
+            } else {
+                // 处理多行宏的续行
+                currentMacro.value += ' ' + trimmed.replace(/\\$/, '').trim();
+                inMultiLine = trimmed.endsWith('\\');
+            }
+
+            // 如果当前宏定义结束
+            if (!inMultiLine && currentMacro.name) {
+                if (currentMacro.value) {
+                    this.defines.add(`${currentMacro.name}=${currentMacro.value}`);
+                } else {
+                    this.defines.add(currentMacro.name);
+                }
+                currentMacro = { name: '', value: '' };
+            }
+        }
+
+    }
+
+    protected getRTEIncludes(target: any, rteDom: any): string[] | undefined {
         if (!rteDom) return undefined;
         // 使用解构赋值和数组处理优化
-        const { components, apis, files } = rteDom;
+        const { components, packages, files } = rteDom;
         // 强化数组标准化处理逻辑
+        const cpuinfo = target?.TargetOption?.TargetCommonOption?.Cpu ?? undefined;
+        const armMisc = (target?.uAC6 === 1) ? 'ARMCC6' : 'ARMCC';
 
+        // 正则表达式：提取Cortex-M*和可选的FPU信息
+        const match = cpuinfo?.match(/CPUTYPE\(["']Cortex-(M\d+)["']\)(?:\s+FPU(\d+))?/);
+
+        const rotsCondition = match
+            ? `CM${match[1].replace('M', '')}${match[2] === '2' ? '_FP' : ''}_${armMisc}`
+            : undefined;
+        const groups = this.getGroups(target);
+        let hasRTE = false;
+        groups.forEach((group) => {
+            if (group["GroupName"].match(/^::.*/)) {
+                hasRTE = true;
+            }
+        });
 
         const componentsList = this.processArray(components?.component);
-        const apiList = this.processArray(apis?.api);
+        const packageList = this.processArray(packages?.package);
         const rteFiles = this.processArray(files?.file);
 
         const incSet = new Set<string>();
         const packsDir = ResourceManager.getInstance().getPackDir(this.getKeilPlatform());
 
-        // 修正缓存实现
         const pdscCache = new Map<string, any>();
         const parserOptions = {
             attributeNamePrefix: "@_",
             ignoreAttributes: false,
         };
 
-        // 统一路径处理方法
-        const addValidPath = (path: string) => {
-            const resolvedPath = resolve(path);
-            if (existsSync(resolvedPath)) {
-                incSet.add(resolvedPath);
-            }
-        };
 
         // 处理组件包含路径
         for (const component of componentsList) {
@@ -539,6 +623,12 @@ export class ArmTarget extends PTarget {
             const pkgVendor = cPackage['@_vendor'];
             const pkgName = cPackage['@_name'];
             const pkgVersion = cPackage['@_version'];
+            const cBundle = component['@_Cbundle'];
+            const cClass = component['@_Cclass'];
+            const condition = component['@_condition'];
+            const cVariant = component['@_Cvariant'];
+            const cVersion = component['@_Cversion'];
+            const cGroup = component['@_Cgroup'];
             const cRootDir = join(packsDir, pkgVendor, pkgName, pkgVersion);
             const pdscPath = join(cRootDir, `${component['@_Cvendor']}.${pkgName}.pdsc`);
 
@@ -546,23 +636,88 @@ export class ArmTarget extends PTarget {
             if (!pdscCache.has(pdscPath)) {
                 if (existsSync(pdscPath) && statSync(pdscPath).isFile()) {
                     const pdscContent = readFileSync(pdscPath, 'utf-8');
+
                     pdscCache.set(pdscPath, new XMLParser(parserOptions).parse(pdscContent));
                 }
             }
 
             const pdscDom = pdscCache.get(pdscPath);
+            if (!pdscDom) {
+                console.warn(`PDSC file not found or invalid: ${pdscPath}`);
+                continue;
+            }
+
             if (pdscDom?.package?.components) {
                 // 组件路径处理逻辑
                 const components = this.processArray(pdscDom.package.components.component);
+                const bundle = pdscDom.package.components.bundle;
+
                 for (const comp of components) {
-                    if (comp['@_Cgroup'] == component['@_Cgroup'] && comp['@_condition'] == component['@_condition']) {
+                    if (comp['@_Cgroup'] === cGroup
+                        && comp['@_condition'] === condition) {
                         const files = this.processArray(comp.files?.file);
+
                         for (const file of files) {
                             if (file['@_category'] === 'include') {
-                                addValidPath(join(cRootDir, file['@_name']));
+                                this.addValidPath(incSet, join(cRootDir, file['@_name']));
                             } else if (file['@_category'] === 'header') {
-                                addValidPath(join(cRootDir, file['@_name'], ".."));
+                                this.addValidPath(incSet, join(cRootDir, file['@_name'], ".."));
                             }
+                        }
+                    }
+                }
+                // 处理bundle路径
+                if (bundle && bundle['@_Cbundle'] === cBundle
+                    && bundle['@_Cclass'] === cClass && bundle['@_Cversion'] === cVersion) {
+                    const components = this.processArray(bundle.component);
+
+                    for (const comp of components) {
+                        if (comp['@_Cgroup'] === cGroup
+                            && comp['@_Cvariant'] === cVariant
+                            && comp['@_condition'] === condition) {
+                            const files = this.processArray(comp.files?.file);
+                            const pre_Include_Global_h = comp.Pre_Include_Global_h;
+                            if (pre_Include_Global_h !== undefined) {
+                                this.extractMacros(pre_Include_Global_h);
+                            }
+
+                            for (const file of files) {
+                                const fileCondition = file['@_condition'];
+                                if (fileCondition === undefined) {
+                                    if (file['@_category'] === 'include') {
+                                        this.addValidPath(incSet, join(cRootDir, file['@_name']));
+                                    } else if (file['@_category'] === 'preIncludeGlobal') {
+                                        const headerExtName = extname(file['@_name']);
+                                        if ((headerExtName === '.h' || headerExtName === '.hpp')) {
+                                            const headerDir = PTarget.getDirFromPath(file['@_name']);
+                                            this.addValidPath(incSet, join(cRootDir, headerDir));
+                                        }
+                                    }
+                                } else if (fileCondition === rotsCondition) {
+                                    if (file['@_category'] === 'include') {
+                                        this.addValidPath(incSet, join(cRootDir, file['@_name']));
+                                    }
+                                }
+
+                            }
+                        }
+                    }
+                }
+            }
+            const apis = this.processArray(pdscDom?.package?.apis?.api);
+            for (const api of apis) {
+                const apiClass = api['@_Cclass'];
+                const apiGroup = api['@_Cgroup'];
+                if ((apiClass == 'CMSIS' && apiGroup === 'RTOS2') ||
+                    (apiClass == 'Device' && apiGroup === 'OS Tick')) {
+                    const apifiles = this.processArray(api.files.file);
+                    for (const af of apifiles) {
+                        const category = af['@_category'];
+                        const afPath = af['@_name'];
+                        const headerExtName = extname(afPath);
+                        if (category === 'header' && (headerExtName === '.h' || headerExtName === '.hpp')) {
+                            const headerDir = PTarget.getDirFromPath(afPath);
+                            this.addValidPath(incSet, join(cRootDir, headerDir));
                         }
                     }
                 }
@@ -571,19 +726,43 @@ export class ArmTarget extends PTarget {
 
         // 处理项目文件路径
         const prjRoot = resolve(this.project.uvprjFile.dir);
+
         for (const file of rteFiles) {
-            if (file['@_attr'] === 'config' && file['@_category'] === 'header') {
-                addValidPath(join(prjRoot, file.instance['#text']));
+            const file_category = file['@_category'];
+            if (file['@_attr'] === 'config' && (
+                file_category === 'header' || file_category === 'preIncludeGlobal')) {
+                const headerPath = file.instance['#text'];
+                const headerExtName = extname(headerPath);
+                if (headerExtName === '.h' || headerExtName === '.hpp') {
+                    const headerDir = PTarget.getDirFromPath(headerPath);
+                    this.addValidPath(incSet, join(prjRoot, headerDir));
+                }
             }
         }
 
         // 处理API路径
-        for (const api of apiList) {
-            for (const targetInfo of this.processArray(api.targetInfos?.targetInfo)) {
+        /* for (const rte_pkg of packageList) {
+            if (rte_pkg['@_name'] !== 'CMSIS') continue; // Ignore other packages
+            for (const targetInfo of this.processArray(rte_pkg.targetInfos?.targetInfo)) {
                 if (targetInfo['@_name'] === this.targetName) {
-                    addValidPath(join(prjRoot, "RTE", `_${this.targetName}`));
+                    this.addValidPath(incSet, join(prjRoot, "RTE", `_${this.targetName}`));
                 }
             }
+        } */
+        if (hasRTE) {
+            const target = this.targetName.replace(/\s/g, '_');
+            const rteIncPath = join(prjRoot, "RTE", `_${target}`);
+            this.addValidPath(incSet, rteIncPath);
+
+            if (existsSync(rteIncPath) && statSync(rteIncPath).isDirectory()) {
+                const incFiles = readdirSync(rteIncPath);
+                incFiles.forEach(incFile => {
+                    const incFilePath = join(rteIncPath, incFile);
+                    const content = readFileSync(incFilePath, 'utf-8');
+                    this.extractMacros(content);
+                })
+            }
+
         }
 
         return Array.from(incSet);
@@ -591,16 +770,24 @@ export class ArmTarget extends PTarget {
 
     protected getIncString(target: any): string {
         const dat = target['TargetOption']['TargetArmAds']['Cads'];
+
         return dat['VariousControls']['IncludePath'];
     }
 
-    protected getDefineString(target: any): string {
+    protected getDefineString(target: any) {
         const dat = target['TargetOption']['TargetArmAds']['Cads'];
-        return dat['VariousControls']['Define'];
+
+        const macros: string = dat['VariousControls']['Define'];
+
+        macros?.split(/,|\s+/).forEach((define) => {
+            if (define.trim() !== '') {
+                this.defines.add(define);
+            }
+        });
     }
 
     protected getGroups(target: any): any[] {
-        return target['Groups']['Group'] || [];
+        return target['Groups']['Group'] ?? [];
     }
 
     protected getProblemMatcher(): string[] {
@@ -608,73 +795,75 @@ export class ArmTarget extends PTarget {
     }
 
     protected getCStandard(target: any): string {
-        if (target['uAC6'] != 1) return 'c17'
+        if (target['uAC6'] !== 1) return 'c17'
         /**
          * 0：default  → C 语言标准
          * 1：C90      → 对应uC90
-         * 2：gun90    → 对应uGun99
+         * 2：gnu90    → 对应uGnu99
          * 3：C99      → 对应uC99
-         * 4：gun99    → 对应uGun99
+         * 4：gnu99    → 对应uGnu99
          * 5：C11      → 对应uC11
-         * 6：gun11    → 对应uGun11
+         * 6：gnu11    → 对应uGnu11
          */
 
         const dat = target['TargetOption']['TargetArmAds']['Cads'];
         const uC99 = dat['uC99'];
-        const uGun = dat['uGnu'];
+        const uGnu = dat['uGnu'];
         const v6Lang = dat['v6Lang'];
+
         switch (v6Lang) {
             case 1:
                 return 'c90';
             case 2:
-                return 'gun90';
+                return 'gnu90';
             case 3:
                 return uC99 === 1 ? 'c99' : 'c11';
             case 4:
-                return uGun === 1 ? 'gun99' : 'gun11';
+                return uGnu === 1 ? 'gnu99' : 'gnu11';
             case 5:
                 return 'c11';
             case 6:
-                return 'gun11';
+                return 'gnu11';
             default:
                 return 'c99';
         }
     }
     protected getCppStandard(target: any): string {
-        if (target['uAC6'] != 1) return 'c++17'
+        if (target['uAC6'] !== 1) return 'c++17'
         /**
          * 0: default  → C++语言标准
          * 1: C++98    → 对应uC++98
-         * 2: gun++98  → 对应uGun++98
+         * 2: gnu++98  → 对应uGnu++98
          * 3: C++11    → 对应uC++11
-         * 4: gun++11  → 对应uGun++11
+         * 4: gnu++11  → 对应uGnu++11
          * 5: C++03    → 对应uC++03
          * 6: C++14    → 对应uC++14
-         * 7: gun++14  → 对应uGun++14
+         * 7: gnu++14  → 对应uGnu++14
          * 8: C++17    → 对应uC++17
-         * 9: gun++17  → 对应uGun++17
+         * 9: gnu++17  → 对应uGnu++17
          */
         const dat = target['TargetOption']['TargetArmAds']['Cads'];
         const v6Langp = dat['v6Langp'];
+
         switch (v6Langp) {
             case 1:
                 return 'c++98';
             case 2:
-                return 'gun++98';
+                return 'gnu++98';
             case 3:
                 return 'c++11';
             case 4:
-                return 'gun++11';
+                return 'gnu++11';
             case 5:
                 return 'c++03';
             case 6:
                 return 'c++14';
             case 7:
-                return 'gun++14';
+                return 'gnu++14';
             case 8:
                 return 'c++17';
             case 9:
-                return 'gun++17';
+                return 'gnu++17';
             default:
                 return 'c++11';
         }
